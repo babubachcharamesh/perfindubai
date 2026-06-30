@@ -265,29 +265,28 @@ def apply_theme_css():
 
 def style_plotly_chart(fig):
     theme = st.session_state.settings.get("theme", "light")
-    bg_color = "rgba(0,0,0,0)" # Transparent so it inherits background
+    bg_color = "rgba(0,0,0,0)"  # Transparent — inherits page background
     text_color = "#f8fafc" if theme == "dark" else "#0f172a"
     grid_color = "#334155" if theme == "dark" else "#e2e8f0"
-    
+
+    # Use top-level font_color (magic underscore) to avoid nested dict issues in Plotly 6.x
     fig.update_layout(
         paper_bgcolor=bg_color,
         plot_bgcolor=bg_color,
-        font=dict(color=text_color, family="system-ui, -apple-system, sans-serif"),
-        xaxis=dict(
-            gridcolor=grid_color, 
-            zerolinecolor=grid_color,
-            tickfont=dict(color=text_color),
-            titlefont=dict(color=text_color)
-        ),
-        yaxis=dict(
-            gridcolor=grid_color, 
-            zerolinecolor=grid_color,
-            tickfont=dict(color=text_color),
-            titlefont=dict(color=text_color)
-        ),
-        legend=dict(
-            font=dict(color=text_color)
-        )
+        font_color=text_color,
+        font_family="system-ui, -apple-system, sans-serif",
+        legend_font_color=text_color,
+    )
+    # Use dedicated axis update methods — more compatible with Plotly 5.x and 6.x
+    fig.update_xaxes(
+        gridcolor=grid_color,
+        zerolinecolor=grid_color,
+        tickfont_color=text_color,
+    )
+    fig.update_yaxes(
+        gridcolor=grid_color,
+        zerolinecolor=grid_color,
+        tickfont_color=text_color,
     )
     return fig
 
