@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+    // Helper to send messages to the parent Streamlit application
+    function sendStreamlitMessage(type, value) {
+      window.parent.postMessage({
+        isStreamlitMessage: true,
+        type: type,
+        value: value
+      }, "*");
+    }
+
+    // Set value returned back to Python
+    function setComponentValue(value) {
+      sendStreamlitMessage("streamlit:setComponentValue", value);
+    }
+
+    // Listen for render commands from Python
+    window.addEventListener("message", function(event) {
+      if (event.data.type === "streamlit:render") {
+        const args = event.data.args;
+        const action = args.action;
+        const payload = args.payload;
+
+        if (action === "load") {
+          try {
+            const val = localStorage.getItem("personal_finance_data");
+            setComponentValue({ status: "loaded", data: val });
+          } catch (e) {
+            setComponentValue({ status: "error", message: e.message });
+          }
+        } else if (action === "save" && payload) {
+          try {
+            localStorage.setItem("personal_finance_data", payload);
+            setComponentValue({ status: "saved" });
+          } catch (e) {
+            setComponentValue({ status: "error", message: e.message });
+          }
+        }
+      }
+    });
+
+    // Notify Streamlit that the component is fully loaded and set height to 0 (invisible)
+    window.addEventListener("load", function() {
+      sendStreamlitMessage("streamlit:setFrameHeight", 0);
+    });
+  </script>
+</head>
+<body>
+</body>
+</html>

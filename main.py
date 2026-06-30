@@ -13,9 +13,14 @@ import plotly.io as pio
 # ============================================================
 # CONFIGURATION & DATA PERSISTENCE
 # ============================================================
-# NOTE: Data is stored per-user in st.session_state (browser memory).
+# NOTE: Data is stored per-user in browser localStorage via a custom HTML/JS component.
 # No server-side files are written — each user's data is completely private.
-# Users download a JSON backup to their device for persistence across sessions.
+
+import streamlit.components.v1 as components
+
+# Declare browser local storage component
+COMPONENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_storage_component")
+local_storage = components.declare_component("local_storage", path=COMPONENT_DIR)
 
 # Default categories
 DEFAULT_INCOME_CATEGORIES = ["Salary", "Freelance", "Investments", "Business", "Gifts", "Other Income"]
@@ -44,55 +49,52 @@ def load_transactions():
 
 def save_transactions(data):
     st.session_state.transactions = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_budgets():
     return []
 
 def save_budgets(data):
     st.session_state.budgets = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_goals():
     return []
 
 def save_goals(data):
     st.session_state.goals = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_accounts():
     return []
 
 def save_accounts(data):
     st.session_state.accounts = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_categories():
     return {}
 
 def save_categories(data):
     st.session_state.categories = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_recurring():
     return []
 
 def save_recurring(data):
     st.session_state.recurring = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
 def load_settings():
     return {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
 
 def save_settings(data):
     st.session_state.settings = data
-    st.session_state.trigger_download = True
+    st.session_state.trigger_save = True
 
-def trigger_auto_download():
-    """Trigger browser-side download of a JSON backup file dynamically."""
-    import base64
-    import streamlit.components.v1 as components
-    
+def trigger_auto_save():
+    """Trigger invisible local storage component to persist current session data to browser localStorage."""
     backup_data = {
         "transactions": st.session_state.transactions,
         "accounts":     st.session_state.accounts,
@@ -102,25 +104,10 @@ def trigger_auto_download():
         "recurring":    st.session_state.recurring,
         "settings":     st.session_state.settings,
     }
-    
-    payload_str = json.dumps(backup_data, indent=2, default=str)
-    b64 = base64.b64encode(payload_str.encode("utf-8")).decode("utf-8")
-    
-    # Render an invisible iframe that executes JS to download the backup file automatically
-    components.html(f"""
-        <script>
-            const blob = new Blob([atob('{b64}')], {{type: 'application/json'}});
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = 'personal_finance_backup_{datetime.now().strftime("%Y%m%d_%H%M")}.json';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        </script>
-    """, height=0, width=0)
-    st.toast("📥 Auto-saved backup to your device!")
+    payload_str = json.dumps(backup_data, default=str)
+    # Render component in save mode
+    local_storage(action="save", payload=payload_str, key="auto_saver")
+    st.toast("💾 Auto-saved data to browser localStorage!")
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -1544,8 +1531,8 @@ def show_settings():
                 st.rerun()
         
         st.write("---")
-        st.write("**Data Storage Location:** `Browser Session State`")
-        st.write("Your data is kept privately in your browser session memory. To preserve it across app restarts, use the **My Data** section in the sidebar to download backups and upload them when you return.")
+        st.write("**Data Storage Location:** `Browser localStorage (Local Machine)`")
+        st.write("Your data is stored privately and securely inside your browser's local storage on this device. It is saved automatically and persists even if you close the tab or restart the device.")
 
 # ============================================================
 # MAIN APP
@@ -1561,7 +1548,29 @@ def main():
     
     # Initialize session state first so settings are loaded
     init_session_state()
-    
+
+    # Automatically load data from browser local storage on startup
+    if not st.session_state.get("data_loaded", False):
+        st.write("🔄 Loading your data from browser storage...")
+        res = local_storage(action="load", key="init_loader")
+        if res is not None:
+            if res.get("status") == "loaded" and res.get("data"):
+                try:
+                    loaded_data = json.loads(res["data"])
+                    st.session_state.transactions = loaded_data.get("transactions", [])
+                    st.session_state.accounts     = loaded_data.get("accounts", st.session_state.accounts)
+                    st.session_state.budgets      = loaded_data.get("budgets", [])
+                    st.session_state.goals        = loaded_data.get("goals", [])
+                    st.session_state.categories   = loaded_data.get("categories", st.session_state.categories)
+                    st.session_state.recurring    = loaded_data.get("recurring", [])
+                    st.session_state.settings     = loaded_data.get("settings", st.session_state.settings)
+                    update_all_balances()
+                except Exception as e:
+                    st.error(f"Failed to restore local data: {e}")
+            st.session_state.data_loaded = True
+            st.rerun()
+        st.stop()
+
     # Inject theme variables and layout CSS dynamically
     apply_theme_css()
     
@@ -1675,10 +1684,10 @@ def main():
     elif page == "⚙️ Settings":
         show_settings()
 
-    # Trigger auto-download if there are unsaved changes
-    if st.session_state.get("trigger_download", False):
-        st.session_state.trigger_download = False
-        trigger_auto_download()
+    # Trigger auto-save if there are unsaved changes
+    if st.session_state.get("trigger_save", False):
+        st.session_state.trigger_save = False
+        trigger_auto_save()
 
 if __name__ == "__main__":
     main()
