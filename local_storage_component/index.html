@@ -1,56 +1,47 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <script>
-    // Helper to send messages to the parent Streamlit application
-    function sendStreamlitMessage(type, value) {
-      window.parent.postMessage({
-        isStreamlitMessage: true,
-        type: type,
-        value: value
-      }, "*");
+<script>
+  // ── Minimal, fast localStorage bridge ──────────────────────────────────
+  // All calls are synchronous so Streamlit gets the frame-height & component
+  // value within milliseconds of the iframe loading — well inside the 5-second
+  // "trouble loading" timeout window.
+
+  var LS_KEY = "pf_finance_data_v2";
+
+  // 1) Tell Streamlit the frame height (0 = hidden) — MUST come first
+  window.parent.postMessage(
+    { isStreamlitMessage: true, type: "streamlit:setFrameHeight", value: 0 },
+    "*"
+  );
+
+  // 2) Read localStorage immediately and send current value to Python
+  var _initVal = null;
+  try { _initVal = localStorage.getItem(LS_KEY); } catch (e) {}
+  window.parent.postMessage(
+    { isStreamlitMessage: true, type: "streamlit:setComponentValue", value: { data: _initVal } },
+    "*"
+  );
+
+  // 3) Listen for subsequent render calls (saves or re-reads)
+  window.addEventListener("message", function (evt) {
+    if (!evt.data || evt.data.type !== "streamlit:render") return;
+    var args = evt.data.args || {};
+
+    // Save if Python sent a payload
+    if (args.payload) {
+      try { localStorage.setItem(LS_KEY, args.payload); } catch (e) {}
     }
 
-    // Set value returned back to Python
-    function setComponentValue(value) {
-      sendStreamlitMessage("streamlit:setComponentValue", value);
-    }
-
-    // Load data from localStorage and send it back immediately
-    function doLoad() {
-      try {
-        const val = localStorage.getItem("personal_finance_data");
-        setComponentValue({ status: "loaded", data: val });
-      } catch (e) {
-        setComponentValue({ status: "error", message: e.message });
-      }
-    }
-
-    // Listen for commands from Python
-    window.addEventListener("message", function(event) {
-      if (event.data.type === "streamlit:render") {
-        const args = event.data.args;
-        const action = args.action;
-        const payload = args.payload;
-
-        if (action === "load") {
-          doLoad();
-        } else if (action === "save" && payload) {
-          try {
-            localStorage.setItem("personal_finance_data", payload);
-            setComponentValue({ status: "saved" });
-          } catch (e) {
-            setComponentValue({ status: "error", message: e.message });
-          }
-        }
-      }
-    });
-
-    // Run instantly on script evaluation (virtually 0ms loading time)
-    sendStreamlitMessage("streamlit:setFrameHeight", 0);
-    doLoad();
-  </script>
+    // Always report the current value back to Python
+    var val = null;
+    try { val = localStorage.getItem(LS_KEY); } catch (e) {}
+    window.parent.postMessage(
+      { isStreamlitMessage: true, type: "streamlit:setComponentValue", value: { data: val } },
+      "*"
+    );
+  });
+</script>
 </head>
-<body>
-</body>
+<body></body>
 </html>

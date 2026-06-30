@@ -13,14 +13,48 @@ import plotly.io as pio
 # ============================================================
 # CONFIGURATION & DATA PERSISTENCE
 # ============================================================
-# NOTE: Data is stored per-user in browser localStorage via a custom HTML/JS component.
-# No server-side files are written — each user's data is completely private.
+# Data is saved to a JSON file on the user's local machine.
+# Since this app runs locally, disk persistence = local machine storage.
 
-import streamlit.components.v1 as components
+FINANCE_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finance_data")
 
-# Declare browser local storage component
-COMPONENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_storage_component")
-local_storage = components.declare_component("local_storage", path=COMPONENT_DIR)
+def file_save_individual(key: str, data):
+    """Write specific key data to its corresponding JSON file in finance_data/."""
+    try:
+        os.makedirs(FINANCE_DATA_DIR, exist_ok=True)
+        filepath = os.path.join(FINANCE_DATA_DIR, f"{key}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, default=str, indent=2)
+    except Exception:
+        pass
+
+def file_load_individual(key: str, default=None):
+    """Read specific key data from its corresponding JSON file in finance_data/."""
+    try:
+        filepath = os.path.join(FINANCE_DATA_DIR, f"{key}.json")
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default
+
+def file_save(data: dict):
+    """Write all user data to separate files in the finance_data/ directory."""
+    for key, value in data.items():
+        file_save_individual(key, value)
+
+def file_load() -> dict | None:
+    """Read user data from separate files in the finance_data/ directory."""
+    data = {}
+    data["transactions"] = file_load_individual("transactions", [])
+    data["accounts"]     = file_load_individual("accounts", None)
+    data["budgets"]      = file_load_individual("budgets", [])
+    data["goals"]        = file_load_individual("goals", [])
+    data["categories"]   = file_load_individual("categories", None)
+    data["recurring"]    = file_load_individual("recurring", [])
+    data["settings"]     = file_load_individual("settings", None)
+    return data
 
 # Default categories
 DEFAULT_INCOME_CATEGORIES = ["Salary", "Freelance", "Investments", "Business", "Gifts", "Other Income"]
@@ -93,9 +127,9 @@ def save_settings(data):
     st.session_state.settings = data
     st.session_state.trigger_save = True
 
-def trigger_auto_save():
-    """Trigger invisible local storage component to persist current session data to browser localStorage."""
-    backup_data = {
+def get_backup_dict() -> dict:
+    """Return current session data as a dict ready for saving."""
+    return {
         "transactions": st.session_state.transactions,
         "accounts":     st.session_state.accounts,
         "budgets":      st.session_state.budgets,
@@ -104,10 +138,6 @@ def trigger_auto_save():
         "recurring":    st.session_state.recurring,
         "settings":     st.session_state.settings,
     }
-    payload_str = json.dumps(backup_data, default=str)
-    # Render component in save mode
-    local_storage(action="save", payload=payload_str, key="auto_saver")
-    st.toast("💾 Auto-saved data to browser localStorage!")
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -329,6 +359,45 @@ def style_plotly_chart(fig):
     )
     return fig
 
+def parse_date(raw_date) -> datetime | None:
+    if isinstance(raw_date, datetime):
+        return raw_date
+    if isinstance(raw_date, date):
+        return datetime.combine(raw_date, datetime.min.time())
+    
+    date_str = str(raw_date).strip()
+    if not date_str:
+        return None
+        
+    # Try common formats
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+            
+    # Fallback to pandas
+    try:
+        ts = pd.to_datetime(date_str)
+        if pd.notna(ts):
+            return ts.to_pydatetime()
+    except Exception:
+        pass
+        
+    return None
+
+def format_transaction_currency(t):
+    currency = None
+    # Support both dict and pandas Series
+    acc_id = t.get("account_id") if hasattr(t, "get") else t["account_id"]
+    amount = t.get("amount", 0.0) if hasattr(t, "get") else t["amount"]
+    if acc_id:
+        for acc in st.session_state.get("accounts", []):
+            if acc["id"] == acc_id:
+                currency = acc.get("currency")
+                break
+    return format_currency(amount, currency)
+
 def format_currency(amount, currency=None):
     if currency is None:
         if 'settings' in st.session_state and isinstance(st.session_state.settings, dict):
@@ -347,16 +416,19 @@ def get_next_id(data_list):
 def calculate_account_balance(account_id, transactions):
     balance = 0
     for t in transactions:
-        if t.get("account_id") == account_id:
-            if t["type"] == "income":
-                balance += t["amount"]
-            elif t["type"] == "expense":
-                balance -= t["amount"]
-            elif t["type"] == "transfer":
-                if t.get("from_account") == account_id:
-                    balance -= t["amount"]
-                if t.get("to_account") == account_id:
-                    balance += t["amount"]
+        t_type = t.get("type", "expense")
+        amt = float(t.get("amount", 0.0))
+        if t_type == "transfer":
+            if t.get("account_id") == account_id:
+                balance -= amt
+            if t.get("to_account") == account_id:
+                balance += amt
+        else:
+            if t.get("account_id") == account_id:
+                if t_type == "income":
+                    balance += amt
+                elif t_type == "expense":
+                    balance -= amt
     return balance
 
 def update_all_balances():
@@ -384,19 +456,9 @@ def filter_by_date(transactions, start_date, end_date):
         raw_date = t.get("date")
         if not raw_date:
             continue
-        try:
-            if isinstance(raw_date, datetime):
-                t_date = raw_date
-            elif isinstance(raw_date, date):
-                t_date = datetime.combine(raw_date, datetime.min.time())
-            else:
-                date_str = str(raw_date).split()[0]
-                t_date = datetime.strptime(date_str, "%Y-%m-%d")
-            
-            if start_date <= t_date <= end_date:
-                filtered.append(t)
-        except Exception:
-            continue
+        t_date = parse_date(raw_date)
+        if t_date and start_date <= t_date <= end_date:
+            filtered.append(t)
     return filtered
 
 def get_category_spending(transactions, category, start_date, end_date):
@@ -413,29 +475,35 @@ def process_recurring_transactions():
             continue
         last_gen = rec.get("last_generated")
         if last_gen:
-            last_gen = datetime.strptime(last_gen, "%Y-%m-%d").date()
+            last_gen_date = datetime.strptime(last_gen, "%Y-%m-%d").date()
+            next_date = last_gen_date
+            is_first = False
         else:
-            last_gen = datetime.strptime(rec["start_date"], "%Y-%m-%d").date()
+            start_date = datetime.strptime(rec["start_date"], "%Y-%m-%d").date()
+            next_date = start_date
+            is_first = True
         
         frequency = rec["frequency"]  # daily, weekly, monthly, yearly
-        next_date = last_gen
         
         while True:
-            if frequency == "daily":
-                next_date += timedelta(days=1)
-            elif frequency == "weekly":
-                next_date += timedelta(weeks=1)
-            elif frequency == "monthly":
-                new_year = next_date.year + (next_date.month // 12)
-                new_month = (next_date.month % 12) + 1
-                max_day = calendar.monthrange(new_year, new_month)[1]
-                new_day = min(next_date.day, max_day)
-                next_date = next_date.replace(year=new_year, month=new_month, day=new_day)
-            elif frequency == "yearly":
-                new_year = next_date.year + 1
-                max_day = calendar.monthrange(new_year, next_date.month)[1]
-                new_day = min(next_date.day, max_day)
-                next_date = next_date.replace(year=new_year, day=new_day)
+            if not is_first:
+                if frequency == "daily":
+                    next_date += timedelta(days=1)
+                elif frequency == "weekly":
+                    next_date += timedelta(weeks=1)
+                elif frequency == "monthly":
+                    new_year = next_date.year + (next_date.month // 12)
+                    new_month = (next_date.month % 12) + 1
+                    max_day = calendar.monthrange(new_year, new_month)[1]
+                    new_day = min(next_date.day, max_day)
+                    next_date = next_date.replace(year=new_year, month=new_month, day=new_day)
+                elif frequency == "yearly":
+                    new_year = next_date.year + 1
+                    max_day = calendar.monthrange(new_year, next_date.month)[1]
+                    new_day = min(next_date.day, max_day)
+                    next_date = next_date.replace(year=new_year, day=new_day)
+            else:
+                is_first = False
             
             if next_date > today:
                 break
@@ -469,10 +537,10 @@ def process_recurring_transactions():
 def show_dashboard():
     st.title("📊 Financial Dashboard")
     
-    # Process recurring transactions first
-    added = process_recurring_transactions()
-    if added > 0:
-        st.success(f"Auto-generated {added} recurring transaction(s)")
+    # Process recurring transactions notification
+    added_count = st.session_state.pop("recurring_added_count", 0)
+    if added_count > 0:
+        st.success(f"Auto-generated {added_count} recurring transaction(s)")
     
     # Key Metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -558,7 +626,7 @@ def show_dashboard():
         if recent:
             for t in recent:
                 color = "🟢" if t["type"] == "income" else "🔴" if t["type"] == "expense" else "🔵"
-                st.write(f"{color} **{t['date']}** | {t['category']} | {format_currency(t['amount'])} | {t['description']}")
+                st.write(f"{color} **{t['date']}** | {t['category']} | {format_transaction_currency(t)} | {t['description']}")
         else:
             st.info("No transactions yet")
     
@@ -608,6 +676,10 @@ def show_dashboard():
 def show_transactions():
     st.title("💰 Transactions")
     
+    if not st.session_state.get("accounts"):
+        st.warning("⚠️ No accounts found. Please create an account in the Accounts tab first.")
+        return
+    
     tab1, tab2, tab3 = st.tabs(["Add Transaction", "View & Manage", "Import/Export"])
     
     with tab1:
@@ -652,6 +724,8 @@ def show_transactions():
         if st.button("Add Transaction", type="primary"):
             if amount <= 0:
                 st.error("Amount must be greater than 0")
+            elif trans_type == "transfer" and to_account_id is None:
+                st.error("Transfer requires at least two accounts. Please create another account first.")
             else:
                 new_trans = {
                     "id": get_next_id(st.session_state.transactions),
@@ -681,7 +755,9 @@ def show_transactions():
         with col1:
             filter_type = st.selectbox("Filter Type", ["All", "income", "expense", "transfer"])
         with col2:
-            all_cats = ["All"] + st.session_state.categories.get("income", []) + st.session_state.categories.get("expense", []) + ["Transfer"]
+            existing_cats = {t["category"] for t in st.session_state.transactions if t.get("category")}
+            configured_cats = set(st.session_state.categories.get("income", []) + st.session_state.categories.get("expense", []) + ["Transfer"])
+            all_cats = ["All"] + sorted(list(existing_cats.union(configured_cats)))
             filter_cat = st.selectbox("Filter Category", all_cats)
         with col3:
             filter_start = st.date_input("From", datetime.now() - timedelta(days=30))
@@ -703,7 +779,7 @@ def show_transactions():
         if filtered:
             df = pd.DataFrame(filtered)
             df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-            df["amount_fmt"] = df.apply(lambda x: format_currency(x["amount"]), axis=1)
+            df["amount_fmt"] = df.apply(format_transaction_currency, axis=1)
             
             # Editable dataframe
             edited_df = st.data_editor(
@@ -727,17 +803,49 @@ def show_transactions():
             if st.button("Save Table Changes", type="primary"):
                 edited_records = edited_df.to_dict('records')
                 edited_map = {r['id']: r for r in edited_records if pd.notna(r['id'])}
+                
+                # Get the IDs of the transactions that were displayed
+                displayed_ids = {t["id"] for t in filtered}
+                
+                new_transactions = []
                 for t in st.session_state.transactions:
-                    if t["id"] in edited_map:
-                        rec = edited_map[t["id"]]
-                        t_date = str(rec["date"]).split()[0] if rec["date"] else t["date"]
-                        t["date"] = t_date
-                        t["type"] = rec["type"]
-                        t["category"] = rec["category"]
-                        t["amount"] = float(rec["amount"]) if rec["amount"] is not None else 0.0
-                        t["description"] = str(rec["description"]) if rec["description"] is not None else ""
-                        if isinstance(rec["tags"], list):
-                            t["tags"] = rec["tags"]
+                    if t["id"] in displayed_ids:
+                        if t["id"] in edited_map:
+                            rec = edited_map[t["id"]]
+                            t_date = str(rec["date"]).split()[0] if rec["date"] else t["date"]
+                            t["date"] = t_date
+                            t["type"] = rec["type"]
+                            t["category"] = rec["category"]
+                            t["amount"] = float(rec["amount"]) if rec["amount"] is not None else 0.0
+                            t["description"] = str(rec["description"]) if rec["description"] is not None else ""
+                            if isinstance(rec["tags"], list):
+                                t["tags"] = rec["tags"]
+                            new_transactions.append(t)
+                        # If it was displayed but is not in edited_map, it was deleted!
+                        else:
+                            pass
+                    else:
+                        # If it was not displayed, preserve it as-is
+                        new_transactions.append(t)
+                
+                # Handle newly added rows in the editor (which won't have an ID)
+                for rec in edited_records:
+                    if pd.isna(rec.get('id')) or rec.get('id') is None:
+                        new_id = get_next_id(new_transactions)
+                        t_date = str(rec.get("date", datetime.now().strftime("%Y-%m-%d"))).split()[0]
+                        new_t = {
+                            "id": new_id,
+                            "date": t_date,
+                            "type": rec.get("type", "expense"),
+                            "category": rec.get("category", "Other"),
+                            "amount": float(rec.get("amount", 0.0)) if rec.get("amount") is not None else 0.0,
+                            "description": str(rec.get("description", "")) if rec.get("description") is not None else "",
+                            "account_id": st.session_state.accounts[0]["id"] if st.session_state.accounts else 1,
+                            "tags": rec.get("tags") if isinstance(rec.get("tags"), list) else []
+                        }
+                        new_transactions.append(new_t)
+                
+                st.session_state.transactions = new_transactions
                 save_transactions(st.session_state.transactions)
                 update_all_balances()
                 st.success("Transactions updated successfully!")
@@ -793,9 +901,13 @@ def show_transactions():
                     st.dataframe(df_import.head())
                     if st.button("Import Transactions"):
                         for _, row in df_import.iterrows():
+                            raw_date = row.get("date")
+                            parsed_dt = parse_date(raw_date) if pd.notna(raw_date) else None
+                            if parsed_dt is None:
+                                parsed_dt = datetime.now()
                             new_trans = {
                                 "id": get_next_id(st.session_state.transactions),
-                                "date": str(row.get("date", datetime.now().strftime("%Y-%m-%d"))),
+                                "date": parsed_dt.strftime("%Y-%m-%d"),
                                 "type": row.get("type", "expense"),
                                 "category": row.get("category", "Other"),
                                 "amount": float(row.get("amount", 0)),
@@ -853,7 +965,7 @@ def show_accounts():
                 with st.container(border=True):
                     st.write(f"### {account['icon']} {account['name']}")
                     st.write(f"**Type:** {account['type']}")
-                    st.write(f"**Balance:** {format_currency(account['balance'])}")
+                    st.write(f"**Balance:** {format_currency(account['balance'], account.get('currency'))}")
                     st.write(f"**Currency:** {account['currency']}")
         
         st.write("---")
@@ -1131,12 +1243,23 @@ def show_goals():
                     
                     # Quick update
                     if st.session_state.get(f"edit_goal_{goal['id']}", False):
-                        add_amount = st.number_input(f"Add to {goal['name']}", min_value=0.0, step=10.0, key=f"add_{goal['id']}")
-                        if st.button("Save", key=f"save_{goal['id']}"):
-                            goal["current"] += add_amount
-                            save_goals(st.session_state.goals)
-                            st.session_state[f"edit_goal_{goal['id']}"] = False
-                            st.rerun()
+                        col_edit_1, col_edit_2, col_edit_3 = st.columns([4, 1, 1])
+                        with col_edit_1:
+                            new_current = st.number_input(f"New Current Amount for {goal['name']}", min_value=0.0, max_value=float(goal['target']), value=float(goal['current']), step=10.0, key=f"edit_val_{goal['id']}")
+                        with col_edit_2:
+                            st.write("")
+                            st.write("")
+                            if st.button("Save", key=f"save_{goal['id']}", type="primary"):
+                                goal["current"] = new_current
+                                save_goals(st.session_state.goals)
+                                st.session_state[f"edit_goal_{goal['id']}"] = False
+                                st.rerun()
+                        with col_edit_3:
+                            st.write("")
+                            st.write("")
+                            if st.button("Cancel", key=f"cancel_{goal['id']}"):
+                                st.session_state[f"edit_goal_{goal['id']}"] = False
+                                st.rerun()
         else:
             st.info("No goals created yet. Start planning your financial future!")
     
@@ -1144,21 +1267,25 @@ def show_goals():
         st.subheader("Goal Timeline")
         
         if st.session_state.goals:
+            goal_names = [g["name"] for g in st.session_state.goals]
+            targets = [g["target"] for g in st.session_state.goals]
+            currents = [g["current"] for g in st.session_state.goals]
+            colors = [g.get("color", "#3498db") for g in st.session_state.goals]
+            
             fig = go.Figure()
-            for goal in st.session_state.goals:
-                fig.add_trace(go.Bar(
-                    name=goal["name"],
-                    x=[goal["name"]],
-                    y=[goal["target"]],
-                    marker_color='lightgray'
-                ))
-                fig.add_trace(go.Bar(
-                    name=f"{goal['name']} (Current)",
-                    x=[goal["name"]],
-                    y=[goal["current"]],
-                    marker_color=goal.get("color", "#3498db")
-                ))
-            fig.update_layout(barmode='overlay', height=400, title="Target vs Current")
+            fig.add_trace(go.Bar(
+                name="Target",
+                x=goal_names,
+                y=targets,
+                marker_color='lightgray'
+            ))
+            fig.add_trace(go.Bar(
+                name="Current Progress",
+                x=goal_names,
+                y=currents,
+                marker=dict(color=colors)
+            ))
+            fig.update_layout(barmode='overlay', height=400, title="Target vs Current Progress")
             st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Savings rate needed
@@ -1184,6 +1311,10 @@ def show_goals():
 def show_recurring():
     st.title("🔄 Recurring Transactions")
     
+    if not st.session_state.get("accounts"):
+        st.warning("⚠️ No accounts found. Please create an account in the Accounts tab first.")
+        return
+        
     st.subheader("Set Up Recurring Transaction")
     
     col1, col2, col3 = st.columns(3)
@@ -1367,9 +1498,15 @@ def show_reports():
     with tab4:
         st.subheader("Yearly Summary")
         
-        current_year = datetime.now().year
-        years = list(range(current_year - 2, current_year + 1))
-        selected_year = st.selectbox("Select Year", years)
+        # Build the year range dynamically from existing transactions and the current year
+        existing_years = set()
+        for t in st.session_state.transactions:
+            date_str = str(t.get("date", ""))
+            if len(date_str) >= 4 and date_str[:4].isdigit():
+                existing_years.add(int(date_str[:4]))
+        existing_years.add(datetime.now().year)
+        years = sorted(list(existing_years))
+        selected_year = st.selectbox("Select Year", years, index=len(years) - 1)
         
         year_trans = [t for t in st.session_state.transactions if str(t.get("date", "")).startswith(str(selected_year))]
         
@@ -1517,8 +1654,8 @@ def show_settings():
                     {"id": 3, "name": "Credit Card", "type": "Credit", "balance": 0.0, "currency": "USD", "color": "#e74c3c", "icon": "💳"},
                 ]
                 st.session_state.categories = {
-                    "income": DEFAULT_INCOME_CATEGORIES,
-                    "expense": DEFAULT_EXPENSE_CATEGORIES
+                    "income": DEFAULT_INCOME_CATEGORIES[:],
+                    "expense": DEFAULT_EXPENSE_CATEGORIES[:]
                 }
                 
                 save_transactions([])
@@ -1549,25 +1686,32 @@ def main():
     # Initialize session state first so settings are loaded
     init_session_state()
 
-    # Non-blocking background data load from browser local storage on startup
-    res = local_storage(action="load", key="init_loader")
+    # ── File-based auto-load & auto-save ─────────────────────────────────
+    # Load data from disk once per session (on first render)
     if not st.session_state.get("data_loaded", False):
-        if res is not None:
-            if res.get("status") == "loaded" and res.get("data"):
-                try:
-                    loaded_data = json.loads(res["data"])
-                    st.session_state.transactions = loaded_data.get("transactions", [])
-                    st.session_state.accounts     = loaded_data.get("accounts", st.session_state.accounts)
-                    st.session_state.budgets      = loaded_data.get("budgets", [])
-                    st.session_state.goals        = loaded_data.get("goals", [])
-                    st.session_state.categories   = loaded_data.get("categories", st.session_state.categories)
-                    st.session_state.recurring    = loaded_data.get("recurring", [])
-                    st.session_state.settings     = loaded_data.get("settings", st.session_state.settings)
-                    update_all_balances()
-                except Exception as e:
-                    pass
-            st.session_state.data_loaded = True
-            st.rerun()
+        saved = file_load()
+        if saved:
+            st.session_state.transactions = saved.get("transactions", [])
+            st.session_state.accounts     = saved.get("accounts",     st.session_state.accounts)
+            st.session_state.budgets      = saved.get("budgets",      [])
+            st.session_state.goals        = saved.get("goals",        [])
+            st.session_state.categories   = saved.get("categories",   st.session_state.categories)
+            st.session_state.recurring    = saved.get("recurring",    [])
+            st.session_state.settings     = saved.get("settings",     st.session_state.settings)
+            update_all_balances()
+        st.session_state.data_loaded = True   # mark loaded (new user gets defaults)
+
+    # Process recurring transactions automatically on load/rerun
+    if st.session_state.get("data_loaded", False) and st.session_state.accounts:
+        added = process_recurring_transactions()
+        if added > 0:
+            st.session_state["recurring_added_count"] = st.session_state.get("recurring_added_count", 0) + added
+
+    # Auto-save to disk whenever any data changes
+    if st.session_state.get("trigger_save", False):
+        file_save(get_backup_dict())
+        st.session_state.trigger_save = False
+        st.toast("💾 Data saved to your computer!")
 
     # Inject theme variables and layout CSS dynamically
     apply_theme_css()
@@ -1605,49 +1749,43 @@ def main():
             save_settings(st.session_state.settings)
             st.rerun()
         
-        # ── 💾 My Data (per-user persistence) ─────────────────────────────
+        # ── 💾 My Data (file-based auto-save) ─────────────────────────────
         st.write("---")
         st.markdown("**💾 My Data**")
-        st.caption("Your data is private to your session. Download a backup to keep it across visits.")
+        st.caption("✅ Data auto-saved locally — reloads automatically each visit.")
 
-        # Build full backup payload
-        backup_payload = json.dumps({
-            "transactions": st.session_state.transactions,
-            "accounts":     st.session_state.accounts,
-            "budgets":      st.session_state.budgets,
-            "goals":        st.session_state.goals,
-            "categories":   st.session_state.categories,
-            "recurring":    st.session_state.recurring,
-            "settings":     st.session_state.settings,
-        }, indent=2, default=str).encode("utf-8")
-
+        # Export a portable backup (optional)
+        backup_bytes = json.dumps(get_backup_dict(), indent=2, default=str).encode("utf-8")
         st.download_button(
-            label="📥 Download My Data",
-            data=backup_payload,
-            file_name=f"my_finance_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+            label="📥 Export Backup",
+            data=backup_bytes,
+            file_name=f"finance_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
             mime="application/json",
             use_container_width=True,
         )
 
-        uploaded = st.file_uploader("📤 Load My Data", type="json", label_visibility="collapsed")
-        if uploaded is not None and not st.session_state.get("_upload_processed_" + uploaded.name, False):
-            try:
-                data = json.load(uploaded)
-                st.session_state.transactions = data.get("transactions", [])
-                st.session_state.accounts     = data.get("accounts", st.session_state.accounts)
-                st.session_state.budgets      = data.get("budgets", [])
-                st.session_state.goals        = data.get("goals", [])
-                st.session_state.categories   = data.get("categories", st.session_state.categories)
-                st.session_state.recurring    = data.get("recurring", [])
-                st.session_state.settings     = data.get("settings", st.session_state.settings)
-                update_all_balances()
-                st.session_state["_upload_processed_" + uploaded.name] = True
-                st.success("✅ Data loaded successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to load data: {e}")
+        # Import from a backup file
+        uploaded = st.file_uploader("📤 Import Backup", type="json", label_visibility="collapsed", key="sidebar_backup_uploader")
+        if uploaded is not None:
+            if st.button("Confirm Import", key="sidebar_confirm_import", use_container_width=True, type="primary"):
+                try:
+                    data = json.load(uploaded)
+                    st.session_state.transactions = data.get("transactions", [])
+                    st.session_state.accounts     = data.get("accounts", st.session_state.accounts)
+                    st.session_state.budgets      = data.get("budgets", [])
+                    st.session_state.goals        = data.get("goals", [])
+                    st.session_state.categories   = data.get("categories", st.session_state.categories)
+                    st.session_state.recurring    = data.get("recurring", [])
+                    st.session_state.settings     = data.get("settings", st.session_state.settings)
+                    update_all_balances()
+                    file_save(get_backup_dict())
+                    st.success("✅ Data imported and saved!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to import: {e}")
 
         # ── Quick Stats ────────────────────────────────────────────────────
+
         st.write("---")
         st.write("**Quick Stats**")
         total_balance = sum(acc["balance"] for acc in st.session_state.accounts)
@@ -1682,10 +1820,6 @@ def main():
     elif page == "⚙️ Settings":
         show_settings()
 
-    # Trigger auto-save if there are unsaved changes
-    if st.session_state.get("trigger_save", False):
-        st.session_state.trigger_save = False
-        trigger_auto_save()
 
 if __name__ == "__main__":
     main()
