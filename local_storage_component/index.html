@@ -16,7 +16,17 @@
       sendStreamlitMessage("streamlit:setComponentValue", value);
     }
 
-    // Listen for render commands from Python
+    // Load data from localStorage and send it back immediately
+    function doLoad() {
+      try {
+        const val = localStorage.getItem("personal_finance_data");
+        setComponentValue({ status: "loaded", data: val });
+      } catch (e) {
+        setComponentValue({ status: "error", message: e.message });
+      }
+    }
+
+    // Listen for commands from Python
     window.addEventListener("message", function(event) {
       if (event.data.type === "streamlit:render") {
         const args = event.data.args;
@@ -24,12 +34,7 @@
         const payload = args.payload;
 
         if (action === "load") {
-          try {
-            const val = localStorage.getItem("personal_finance_data");
-            setComponentValue({ status: "loaded", data: val });
-          } catch (e) {
-            setComponentValue({ status: "error", message: e.message });
-          }
+          doLoad();
         } else if (action === "save" && payload) {
           try {
             localStorage.setItem("personal_finance_data", payload);
@@ -41,9 +46,10 @@
       }
     });
 
-    // Notify Streamlit that the component is fully loaded and set height to 0 (invisible)
+    // Notify Streamlit that the component is fully loaded and trigger auto-load immediately
     window.addEventListener("load", function() {
       sendStreamlitMessage("streamlit:setFrameHeight", 0);
+      doLoad();
     });
   </script>
 </head>

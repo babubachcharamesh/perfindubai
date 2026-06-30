@@ -1551,7 +1551,28 @@ def main():
 
     # Automatically load data from browser local storage on startup
     if not st.session_state.get("data_loaded", False):
-        st.write("🔄 Loading your data from browser storage...")
+        if 'load_start_time' not in st.session_state:
+            st.session_state.load_start_time = datetime.now()
+        
+        elapsed = (datetime.now() - st.session_state.load_start_time).total_seconds()
+        
+        st.markdown("""
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 50vh;">
+                <div style="border: 4px solid rgba(0,0,0,0.1); width: 45px; height: 45px; border-radius: 50%; border-left-color: #38bdf8; animation: spin 1s linear infinite;"></div>
+                <h3 style="margin-top: 20px; font-family: system-ui, sans-serif; font-weight: 500; color: #94a3b8;">💰 Loading Finance Manager...</h3>
+                <p style="color: #64748b; font-family: system-ui, sans-serif; font-size: 13px;">Restoring your private local database from browser storage</p>
+            </div>
+            <style>
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+        """, unsafe_allow_html=True)
+
+        if elapsed > 1.2:
+            st.info("No saved data found or browser storage is disabled.")
+            if st.button("Start with Fresh Session", type="primary"):
+                st.session_state.data_loaded = True
+                st.rerun()
+
         res = local_storage(action="load", key="init_loader")
         if res is not None:
             if res.get("status") == "loaded" and res.get("data"):
