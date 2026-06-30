@@ -1549,31 +1549,9 @@ def main():
     # Initialize session state first so settings are loaded
     init_session_state()
 
-    # Automatically load data from browser local storage on startup
+    # Non-blocking background data load from browser local storage on startup
+    res = local_storage(action="load", key="init_loader")
     if not st.session_state.get("data_loaded", False):
-        if 'load_start_time' not in st.session_state:
-            st.session_state.load_start_time = datetime.now()
-        
-        elapsed = (datetime.now() - st.session_state.load_start_time).total_seconds()
-        
-        st.markdown("""
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 50vh;">
-                <div style="border: 4px solid rgba(0,0,0,0.1); width: 45px; height: 45px; border-radius: 50%; border-left-color: #38bdf8; animation: spin 1s linear infinite;"></div>
-                <h3 style="margin-top: 20px; font-family: system-ui, sans-serif; font-weight: 500; color: #94a3b8;">💰 Loading Finance Manager...</h3>
-                <p style="color: #64748b; font-family: system-ui, sans-serif; font-size: 13px;">Restoring your private local database from browser storage</p>
-            </div>
-            <style>
-                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            </style>
-        """, unsafe_allow_html=True)
-
-        if elapsed > 1.2:
-            st.info("No saved data found or browser storage is disabled.")
-            if st.button("Start with Fresh Session", type="primary"):
-                st.session_state.data_loaded = True
-                st.rerun()
-
-        res = local_storage(action="load", key="init_loader")
         if res is not None:
             if res.get("status") == "loaded" and res.get("data"):
                 try:
@@ -1587,10 +1565,9 @@ def main():
                     st.session_state.settings     = loaded_data.get("settings", st.session_state.settings)
                     update_all_balances()
                 except Exception as e:
-                    st.error(f"Failed to restore local data: {e}")
+                    pass
             st.session_state.data_loaded = True
             st.rerun()
-        st.stop()
 
     # Inject theme variables and layout CSS dynamically
     apply_theme_css()

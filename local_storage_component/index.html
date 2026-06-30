@@ -46,11 +46,9 @@
       }
     });
 
-    // Notify Streamlit that the component is fully loaded and trigger auto-load immediately
-    window.addEventListener("load", function() {
-      sendStreamlitMessage("streamlit:setFrameHeight", 0);
-      doLoad();
-    });
+    // Run instantly on script evaluation (virtually 0ms loading time)
+    sendStreamlitMessage("streamlit:setFrameHeight", 0);
+    doLoad();
   </script>
 </head>
 <body>
