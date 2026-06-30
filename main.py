@@ -169,10 +169,40 @@ def apply_theme_css():
         background-color: {sec_bg_color} !important;
         border-right: 1px solid {border_color} !important;
     }}
-    [data-testid="stSidebar"] * {{
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] .stMarkdown, 
+    [data-testid="stSidebar"] .stCaption {{
         color: {text_color} !important;
     }}
     [data-testid="stSidebar"] .stRadio > label {{
+        color: {text_color} !important;
+    }}
+    
+    /* Global Button Overrides (Secondary buttons like st.button/st.download_button) */
+    button[data-testid^="stBaseButton"] {{
+        background-color: {input_bg} !important;
+        color: {text_color} !important;
+        border: 1px solid {border_color} !important;
+        border-radius: 6px !important;
+    }}
+    button[data-testid^="stBaseButton"]:hover {{
+        border-color: {primary_color} !important;
+        color: {primary_color} !important;
+        background-color: {sec_bg_color} !important;
+    }}
+    
+    /* File Uploader styling */
+    [data-testid="stFileUploader"] > section {{
+        background-color: {input_bg} !important;
+        border: 1px dashed {border_color} !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+    }}
+    [data-testid="stFileUploader"] * {{
         color: {text_color} !important;
     }}
     
