@@ -13,23 +13,15 @@ import plotly.io as pio
 # ============================================================
 # CONFIGURATION & DATA PERSISTENCE
 # ============================================================
-DATA_DIR = "finance_data"
-TRANSACTIONS_FILE = os.path.join(DATA_DIR, "transactions.json")
-BUDGETS_FILE = os.path.join(DATA_DIR, "budgets.json")
-GOALS_FILE = os.path.join(DATA_DIR, "goals.json")
-ACCOUNTS_FILE = os.path.join(DATA_DIR, "accounts.json")
-CATEGORIES_FILE = os.path.join(DATA_DIR, "categories.json")
-RECURRING_FILE = os.path.join(DATA_DIR, "recurring.json")
-SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
-
-# Ensure data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+# NOTE: Data is stored per-user in st.session_state (browser memory).
+# No server-side files are written — each user's data is completely private.
+# Users download a JSON backup to their device for persistence across sessions.
 
 # Default categories
 DEFAULT_INCOME_CATEGORIES = ["Salary", "Freelance", "Investments", "Business", "Gifts", "Other Income"]
 DEFAULT_EXPENSE_CATEGORIES = [
-    "Housing", "Food & Dining", "Transportation", "Utilities", 
-    "Healthcare", "Entertainment", "Shopping", "Education", 
+    "Housing", "Food & Dining", "Transportation", "Utilities",
+    "Healthcare", "Entertainment", "Shopping", "Education",
     "Personal Care", "Travel", "Insurance", "Savings", "Debt Payment", "Other"
 ]
 
@@ -38,102 +30,91 @@ DEFAULT_EXPENSE_CATEGORIES = [
 # ============================================================
 
 def load_json(filepath, default=None):
-    """Load JSON data from file"""
+    """No-op: data is stored in st.session_state, not on the server filesystem."""
     if default is None:
         default = []
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            st.error(f"Error loading {os.path.basename(filepath)}: {e}")
-            return default
     return default
 
 def save_json(filepath, data):
-    """Save data to JSON file"""
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, default=str)
+    """No-op: data is stored in st.session_state, not on the server filesystem."""
+    pass
 
 def load_transactions():
-    return load_json(TRANSACTIONS_FILE, [])
+    return []
 
 def save_transactions(data):
-    save_json(TRANSACTIONS_FILE, data)
+    pass  # data lives in st.session_state
 
 def load_budgets():
-    return load_json(BUDGETS_FILE, [])
+    return []
 
 def save_budgets(data):
-    save_json(BUDGETS_FILE, data)
+    pass
 
 def load_goals():
-    return load_json(GOALS_FILE, [])
+    return []
 
 def save_goals(data):
-    save_json(GOALS_FILE, data)
+    pass
 
 def load_accounts():
-    accounts = load_json(ACCOUNTS_FILE, [])
-    if not accounts:
-        # Create default accounts
-        accounts = [
-            {"id": 1, "name": "Cash", "type": "Cash", "balance": 0.0, "currency": "USD", "color": "#2ecc71", "icon": "💵"},
-            {"id": 2, "name": "Bank Account", "type": "Bank", "balance": 0.0, "currency": "USD", "color": "#3498db", "icon": "🏦"},
-            {"id": 3, "name": "Credit Card", "type": "Credit", "balance": 0.0, "currency": "USD", "color": "#e74c3c", "icon": "💳"},
-        ]
-        save_accounts(accounts)
-    return accounts
+    return []
 
 def save_accounts(data):
-    save_json(ACCOUNTS_FILE, data)
+    pass
 
 def load_categories():
-    cats = load_json(CATEGORIES_FILE, {})
-    if not cats:
-        cats = {
-            "income": DEFAULT_INCOME_CATEGORIES,
-            "expense": DEFAULT_EXPENSE_CATEGORIES
-        }
-        save_categories(cats)
-    return cats
+    return {}
 
 def save_categories(data):
-    save_json(CATEGORIES_FILE, data)
+    pass
 
 def load_recurring():
-    return load_json(RECURRING_FILE, [])
+    return []
 
 def save_recurring(data):
-    save_json(RECURRING_FILE, data)
+    pass
 
 def load_settings():
-    return load_json(SETTINGS_FILE, {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"})
+    return {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
 
 def save_settings(data):
-    save_json(SETTINGS_FILE, data)
+    pass
 
 # ============================================================
 # SESSION STATE INITIALIZATION
 # ============================================================
 
 def init_session_state():
+    """Initialise per-user session state with default values.
+    Data never touches the server filesystem — it lives only in the user's
+    browser session. Users download/upload a JSON file to persist across sessions.
+    """
     if 'transactions' not in st.session_state:
-        st.session_state.transactions = load_transactions()
+        st.session_state.transactions = []
     if 'budgets' not in st.session_state:
-        st.session_state.budgets = load_budgets()
+        st.session_state.budgets = []
     if 'goals' not in st.session_state:
-        st.session_state.goals = load_goals()
+        st.session_state.goals = []
     if 'accounts' not in st.session_state:
-        st.session_state.accounts = load_accounts()
+        st.session_state.accounts = [
+            {"id": 1, "name": "Cash", "type": "Cash", "balance": 0.0, "currency": "USD", "color": "#2ecc71", "icon": "💵"},
+            {"id": 2, "name": "Bank Account", "type": "Bank", "balance": 0.0, "currency": "USD", "color": "#3498db", "icon": "🏦"},
+            {"id": 3, "name": "Credit Card", "type": "Credit", "balance": 0.0, "currency": "USD", "color": "#e74c3c", "icon": "💳"},
+        ]
     if 'categories' not in st.session_state:
-        st.session_state.categories = load_categories()
+        st.session_state.categories = {
+            "income": DEFAULT_INCOME_CATEGORIES[:],
+            "expense": DEFAULT_EXPENSE_CATEGORIES[:]
+        }
     if 'recurring' not in st.session_state:
-        st.session_state.recurring = load_recurring()
+        st.session_state.recurring = []
     if 'settings' not in st.session_state:
-        st.session_state.settings = load_settings()
+        st.session_state.settings = {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
     if 'trans_form_id' not in st.session_state:
         st.session_state.trans_form_id = 0
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -1492,8 +1473,8 @@ def show_settings():
                 st.rerun()
         
         st.write("---")
-        st.write(f"**Data Storage Location:** `{os.path.abspath(DATA_DIR)}`")
-        st.write("All your data is stored locally in JSON files in the `finance_data` folder.")
+        st.write("**Data Storage Location:** `Browser Session State`")
+        st.write("Your data is kept privately in your browser session memory. To preserve it across app restarts, use the **My Data** section in the sidebar to download backups and upload them when you return.")
 
 # ============================================================
 # MAIN APP
@@ -1546,11 +1527,54 @@ def main():
             save_settings(st.session_state.settings)
             st.rerun()
         
+        # ── 💾 My Data (per-user persistence) ─────────────────────────────
+        st.write("---")
+        st.markdown("**💾 My Data**")
+        st.caption("Your data is private to your session. Download a backup to keep it across visits.")
+
+        # Build full backup payload
+        backup_payload = json.dumps({
+            "transactions": st.session_state.transactions,
+            "accounts":     st.session_state.accounts,
+            "budgets":      st.session_state.budgets,
+            "goals":        st.session_state.goals,
+            "categories":   st.session_state.categories,
+            "recurring":    st.session_state.recurring,
+            "settings":     st.session_state.settings,
+        }, indent=2, default=str).encode("utf-8")
+
+        st.download_button(
+            label="📥 Download My Data",
+            data=backup_payload,
+            file_name=f"my_finance_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+        uploaded = st.file_uploader("📤 Load My Data", type="json", label_visibility="collapsed")
+        if uploaded is not None and not st.session_state.get("_upload_processed_" + uploaded.name, False):
+            try:
+                data = json.load(uploaded)
+                st.session_state.transactions = data.get("transactions", [])
+                st.session_state.accounts     = data.get("accounts", st.session_state.accounts)
+                st.session_state.budgets      = data.get("budgets", [])
+                st.session_state.goals        = data.get("goals", [])
+                st.session_state.categories   = data.get("categories", st.session_state.categories)
+                st.session_state.recurring    = data.get("recurring", [])
+                st.session_state.settings     = data.get("settings", st.session_state.settings)
+                update_all_balances()
+                st.session_state["_upload_processed_" + uploaded.name] = True
+                st.success("✅ Data loaded successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to load data: {e}")
+
+        # ── Quick Stats ────────────────────────────────────────────────────
         st.write("---")
         st.write("**Quick Stats**")
         total_balance = sum(acc["balance"] for acc in st.session_state.accounts)
         st.write(f"Total: {format_currency(total_balance)}")
-        
+
         # Show top spending category this month
         start_month, end_month = get_month_range()
         month_trans = filter_by_date(st.session_state.transactions, start_month, end_month)
