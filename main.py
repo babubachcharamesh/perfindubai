@@ -1672,6 +1672,43 @@ def show_settings():
         st.write("Your data is stored privately and securely inside your browser's local storage on this device. It is saved automatically and persists even if you close the tab or restart the device.")
 
 # ============================================================
+# RAW DATA VIEWER
+# ============================================================
+
+def show_raw_data_viewer():
+    """Display all current session data as formatted JSON in the main content area."""
+    st.header("📋 Raw Data Viewer")
+    st.caption("Live view of all your finance data in JSON format.")
+
+    data_sections = {
+        "💰 Transactions": st.session_state.get("transactions", []),
+        "🏦 Accounts": st.session_state.get("accounts", []),
+        "📋 Budgets": st.session_state.get("budgets", []),
+        "🎯 Goals": st.session_state.get("goals", []),
+        "🏷️ Categories": st.session_state.get("categories", {}),
+        "🔄 Recurring": st.session_state.get("recurring", []),
+        "⚙️ Settings": st.session_state.get("settings", {}),
+    }
+
+    # Full combined JSON download
+    full_json_str = json.dumps(data_sections, indent=2, default=str)
+    st.download_button(
+        "📥 Download All Data as JSON",
+        data=full_json_str.encode("utf-8"),
+        file_name=f"finance_raw_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    st.write("---")
+
+    # Expandable sections per data type
+    for section_label, section_data in data_sections.items():
+        count = len(section_data) if isinstance(section_data, list) else len(section_data.keys())
+        with st.expander(f"{section_label}  ({count} items)", expanded=False):
+            st.json(section_data)
+
+# ============================================================
 # MAIN APP
 # ============================================================
 
@@ -1784,6 +1821,11 @@ def main():
                 except Exception as e:
                     st.error(f"Failed to import: {e}")
 
+        # ── 📋 View Raw Data ───────────────────────────────────────────────
+        st.write("---")
+        view_json = st.toggle("📋 View Raw Data (JSON)", value=st.session_state.get("show_raw_json", False), key="sidebar_raw_json_toggle")
+        st.session_state.show_raw_json = view_json
+
         # ── Quick Stats ────────────────────────────────────────────────────
 
         st.write("---")
@@ -1803,7 +1845,9 @@ def main():
             st.write(f"Top Spend: {top_cat}")
     
     # Route to page
-    if page == "📊 Dashboard":
+    if st.session_state.get("show_raw_json", False):
+        show_raw_data_viewer()
+    elif page == "📊 Dashboard":
         show_dashboard()
     elif page == "💰 Transactions":
         show_transactions()
