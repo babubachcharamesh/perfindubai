@@ -43,43 +43,84 @@ def load_transactions():
     return []
 
 def save_transactions(data):
-    pass  # data lives in st.session_state
+    st.session_state.transactions = data
+    st.session_state.trigger_download = True
 
 def load_budgets():
     return []
 
 def save_budgets(data):
-    pass
+    st.session_state.budgets = data
+    st.session_state.trigger_download = True
 
 def load_goals():
     return []
 
 def save_goals(data):
-    pass
+    st.session_state.goals = data
+    st.session_state.trigger_download = True
 
 def load_accounts():
     return []
 
 def save_accounts(data):
-    pass
+    st.session_state.accounts = data
+    st.session_state.trigger_download = True
 
 def load_categories():
     return {}
 
 def save_categories(data):
-    pass
+    st.session_state.categories = data
+    st.session_state.trigger_download = True
 
 def load_recurring():
     return []
 
 def save_recurring(data):
-    pass
+    st.session_state.recurring = data
+    st.session_state.trigger_download = True
 
 def load_settings():
     return {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
 
 def save_settings(data):
-    pass
+    st.session_state.settings = data
+    st.session_state.trigger_download = True
+
+def trigger_auto_download():
+    """Trigger browser-side download of a JSON backup file dynamically."""
+    import base64
+    import streamlit.components.v1 as components
+    
+    backup_data = {
+        "transactions": st.session_state.transactions,
+        "accounts":     st.session_state.accounts,
+        "budgets":      st.session_state.budgets,
+        "goals":        st.session_state.goals,
+        "categories":   st.session_state.categories,
+        "recurring":    st.session_state.recurring,
+        "settings":     st.session_state.settings,
+    }
+    
+    payload_str = json.dumps(backup_data, indent=2, default=str)
+    b64 = base64.b64encode(payload_str.encode("utf-8")).decode("utf-8")
+    
+    # Render an invisible iframe that executes JS to download the backup file automatically
+    components.html(f"""
+        <script>
+            const blob = new Blob([atob('{b64}')], {{type: 'application/json'}});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'personal_finance_backup_{datetime.now().strftime("%Y%m%d_%H%M")}.json';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        </script>
+    """, height=0, width=0)
+    st.toast("📥 Auto-saved backup to your device!")
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -1633,6 +1674,11 @@ def main():
         show_reports()
     elif page == "⚙️ Settings":
         show_settings()
+
+    # Trigger auto-download if there are unsaved changes
+    if st.session_state.get("trigger_download", False):
+        st.session_state.trigger_download = False
+        trigger_auto_download()
 
 if __name__ == "__main__":
     main()
