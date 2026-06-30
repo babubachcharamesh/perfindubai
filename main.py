@@ -8,6 +8,7 @@ from collections import defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.io as pio
 
 # ============================================================
 # CONFIGURATION & DATA PERSISTENCE
@@ -137,6 +138,158 @@ def init_session_state():
 # ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
+
+def apply_theme_css():
+    theme = st.session_state.settings.get("theme", "light")
+    
+    if theme == "dark":
+        # Professional slate dark theme
+        bg_color = "#0f172a"          # slate-900
+        sec_bg_color = "#1e293b"      # slate-800
+        text_color = "#f8fafc"        # slate-50
+        label_color = "#94a3b8"       # slate-400
+        primary_color = "#38bdf8"     # sky-400
+        border_color = "#334155"      # slate-700
+        progress_bg = "#475569"       # slate-600
+        input_bg = "#1e293b"
+        card_bg = "#1e293b"
+    else:
+        # Crisp light theme
+        bg_color = "#ffffff"
+        sec_bg_color = "#f8fafc"      # slate-50
+        text_color = "#0f172a"        # slate-900
+        label_color = "#64748b"       # slate-500
+        primary_color = "#2563eb"     # blue-600
+        border_color = "#e2e8f0"      # slate-200
+        progress_bg = "#e2e8f0"       # slate-200
+        input_bg = "#ffffff"
+        card_bg = "#ffffff"
+
+    # Set dynamic default Plotly template at runtime
+    pio.templates.default = "plotly_dark" if theme == "dark" else "plotly"
+
+    css = f"""
+    <style>
+    /* Global CSS Variable Overrides for Streamlit Component Engines */
+    :root {{
+        --background-color: {bg_color};
+        --secondary-background-color: {sec_bg_color};
+        --text-color: {text_color};
+        --primary-color: {primary_color};
+    }}
+    
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], .stApp {{
+        background-color: {bg_color} !important;
+        color: {text_color} !important;
+    }}
+    
+    /* Sidebar Overrides */
+    [data-testid="stSidebar"] {{
+        background-color: {sec_bg_color} !important;
+        border-right: 1px solid {border_color} !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: {text_color} !important;
+    }}
+    [data-testid="stSidebar"] .stRadio > label {{
+        color: {text_color} !important;
+    }}
+    
+    /* Metrics Overrides */
+    div.stMetric {{
+        background-color: {card_bg} !important;
+        border: 1px solid {border_color} !important;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }}
+    [data-testid="stMetricValue"] {{
+        color: {text_color} !important;
+        font-weight: 700 !important;
+    }}
+    [data-testid="stMetricLabel"] {{
+        color: {label_color} !important;
+    }}
+    
+    /* Cards (st.container(border=True)) Overrides */
+    [data-testid="stVerticalBlockBorderContainer"] {{
+        background-color: {card_bg} !important;
+        border: 1px solid {border_color} !important;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }}
+    
+    /* Progress Bar Overrides */
+    .stProgress > div > div {{
+        background-color: {progress_bg} !important;
+    }}
+    .stProgress > div > div > div {{
+        background-color: {primary_color} !important;
+    }}
+    
+    /* Tabs Overrides */
+    button[data-baseweb="tab"] {{
+        color: {label_color} !important;
+        font-weight: 500 !important;
+    }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        color: {primary_color} !important;
+        border-bottom-color: {primary_color} !important;
+        font-weight: 600 !important;
+    }}
+    
+    /* Text/Select Inputs Overrides */
+    div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, input {{
+        background-color: {input_bg} !important;
+        color: {text_color} !important;
+        border-color: {border_color} !important;
+    }}
+    
+    /* Expanders and other container structures */
+    .streamlit-expanderHeader {{
+        background-color: {sec_bg_color} !important;
+        color: {text_color} !important;
+        border: 1px solid {border_color} !important;
+        border-radius: 6px;
+    }}
+    
+    /* Success, Warning, Error alerts styling integration */
+    [data-testid="stNotification"] {{
+        border-radius: 8px;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+def style_plotly_chart(fig):
+    theme = st.session_state.settings.get("theme", "light")
+    bg_color = "rgba(0,0,0,0)" # Transparent so it inherits background
+    text_color = "#f8fafc" if theme == "dark" else "#0f172a"
+    grid_color = "#334155" if theme == "dark" else "#e2e8f0"
+    
+    fig.update_layout(
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color, family="system-ui, -apple-system, sans-serif"),
+        xaxis=dict(
+            gridcolor=grid_color, 
+            zerolinecolor=grid_color,
+            tickfont=dict(color=text_color),
+            titlefont=dict(color=text_color)
+        ),
+        yaxis=dict(
+            gridcolor=grid_color, 
+            zerolinecolor=grid_color,
+            tickfont=dict(color=text_color),
+            titlefont=dict(color=text_color)
+        ),
+        legend=dict(
+            font=dict(color=text_color)
+        )
+    )
+    return fig
 
 def format_currency(amount, currency=None):
     if currency is None:
@@ -321,7 +474,7 @@ def show_dashboard():
                 marker_colors=[acc["color"] for acc in st.session_state.accounts]
             )])
             fig.update_layout(height=350, showlegend=True)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
     
     with col2:
         st.subheader("Monthly Cash Flow")
@@ -341,7 +494,7 @@ def show_dashboard():
         fig.add_trace(go.Bar(name='Income', x=months, y=incomes, marker_color='#2ecc71'))
         fig.add_trace(go.Bar(name='Expenses', x=months, y=expenses, marker_color='#e74c3c'))
         fig.update_layout(barmode='group', height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_plotly_chart(fig), width='stretch')
     
     # Charts Row 2
     col1, col2 = st.columns(2)
@@ -357,7 +510,7 @@ def show_dashboard():
             df_exp = pd.DataFrame(list(expense_by_cat.items()), columns=["Category", "Amount"])
             fig = px.pie(df_exp, values="Amount", names="Category", hole=0.3)
             fig.update_layout(height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
         else:
             st.info("No expenses this month")
     
@@ -527,7 +680,7 @@ def show_transactions():
                     "tags": st.column_config.ListColumn("Tags")
                 },
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 num_rows="dynamic",
                 key="trans_data_editor"
             )
@@ -728,7 +881,7 @@ def show_accounts():
         if account_trans:
             df = pd.DataFrame(account_trans)
             cols_to_show = [c for c in ["date", "type", "category", "amount", "description"] if c in df.columns]
-            st.dataframe(df[cols_to_show], use_container_width=True)
+            st.dataframe(df[cols_to_show], width='stretch')
             
             # Balance over time
             df["parsed_date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -752,7 +905,7 @@ def show_accounts():
             
             if not df.empty:
                 fig = px.line(df, x="parsed_date", y="balance", title="Balance Over Time")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(style_plotly_chart(fig), width='stretch')
         else:
             st.info("No transactions for this account")
 
@@ -853,7 +1006,7 @@ def show_budgets():
             fig.add_trace(go.Bar(name='Budget', x=cats, y=budgets, marker_color='#3498db'))
             fig.add_trace(go.Bar(name='Actual', x=cats, y=actuals, marker_color='#e74c3c'))
             fig.update_layout(barmode='group', height=500, title="Budget vs Actual")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Overspending alert
             overspent = [(cat, act, bud) for cat, act, bud in zip(cats, actuals, budgets) if act > bud]
@@ -968,7 +1121,7 @@ def show_goals():
                     marker_color=goal.get("color", "#3498db")
                 ))
             fig.update_layout(barmode='overlay', height=400, title="Target vs Current")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Savings rate needed
             st.subheader("Required Monthly Savings")
@@ -1098,7 +1251,7 @@ def show_reports():
             if not daily.empty:
                 fig = px.line(daily, x="date", y="amount", title="Daily Spending")
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Monthly trend
             df["month"] = df["date"].dt.to_period("M").astype(str)
@@ -1111,7 +1264,7 @@ def show_reports():
             if not monthly_inc.empty:
                 fig.add_trace(go.Bar(name='Income', x=monthly_inc["month"], y=monthly_inc["amount"], marker_color='#2ecc71'))
             fig.update_layout(barmode='group', height=400, title="Monthly Income vs Expenses")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
         else:
             st.info("No data for selected period")
     
@@ -1125,13 +1278,13 @@ def show_reports():
             # By category
             cat_income = df.groupby("category")["amount"].sum().reset_index()
             fig = px.pie(cat_income, values="amount", names="category", title="Income by Category")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Income trend
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date")
             fig = px.bar(df, x="date", y="amount", color="category", title="Income Timeline")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
         else:
             st.info("No income data for selected period")
     
@@ -1163,7 +1316,7 @@ def show_reports():
                 else:
                     fig = px.scatter(cat_df, x="date", y="amount", 
                                    hover_data=hover_cols, title=f"{selected_cat} Spending Pattern")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(style_plotly_chart(fig), width='stretch')
                 
                 # Top merchants/descriptions
                 if "description" in cat_df.columns and "amount" in cat_df.columns:
@@ -1215,7 +1368,7 @@ def show_reports():
                                     marker_color='#3498db', fill='tozeroy'), row=2, col=1)
             
             fig.update_layout(height=600, showlegend=True)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_plotly_chart(fig), width='stretch')
             
             # Year totals
             total_income = sum(incomes)
@@ -1287,8 +1440,11 @@ def show_settings():
                                index=["USD", "EUR", "GBP", "JPY", "INR", "CAD", "AUD"].index(st.session_state.settings.get("currency", "USD")))
         date_format = st.selectbox("Date Format", ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"])
         
+        theme = st.selectbox("Theme Mode", ["light", "dark"],
+                             index=["light", "dark"].index(st.session_state.settings.get("theme", "light")))
+        
         if st.button("Save Settings", type="primary"):
-            st.session_state.settings = {"currency": currency, "date_format": date_format}
+            st.session_state.settings = {"currency": currency, "date_format": date_format, "theme": theme}
             save_settings(st.session_state.settings)
             st.success("Settings saved!")
             st.rerun()
@@ -1352,22 +1508,11 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Custom CSS
-    st.markdown("""
-    <style>
-    .stMetric {
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 10px;
-    }
-    .stProgress > div > div {
-        background-color: #e0e0e0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Initialize
+    # Initialize session state first so settings are loaded
     init_session_state()
+    
+    # Inject theme variables and layout CSS dynamically
+    apply_theme_css()
     
     # Sidebar Navigation
     with st.sidebar:
@@ -1384,6 +1529,23 @@ def main():
             "📈 Reports",
             "⚙️ Settings"
         ])
+        
+        # Theme switcher dropdown
+        st.write("---")
+        theme_options = ["Light Mode", "Dark Mode"]
+        current_theme = st.session_state.settings.get("theme", "light")
+        theme_index = 0 if current_theme == "light" else 1
+        selected_theme_label = st.selectbox(
+            "Theme Mode",
+            theme_options,
+            index=theme_index,
+            key="sidebar_theme_selector"
+        )
+        new_theme = "light" if selected_theme_label == "Light Mode" else "dark"
+        if new_theme != current_theme:
+            st.session_state.settings["theme"] = new_theme
+            save_settings(st.session_state.settings)
+            st.rerun()
         
         st.write("---")
         st.write("**Quick Stats**")
