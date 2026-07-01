@@ -13,48 +13,9 @@ import plotly.io as pio
 # ============================================================
 # CONFIGURATION & DATA PERSISTENCE
 # ============================================================
-# Data is saved to a JSON file on the user's local machine.
-# Since this app runs locally, disk persistence = local machine storage.
-
-FINANCE_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finance_data")
-
-def file_save_individual(key: str, data):
-    """Write specific key data to its corresponding JSON file in finance_data/."""
-    try:
-        os.makedirs(FINANCE_DATA_DIR, exist_ok=True)
-        filepath = os.path.join(FINANCE_DATA_DIR, f"{key}.json")
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, default=str, indent=2)
-    except Exception:
-        pass
-
-def file_load_individual(key: str, default=None):
-    """Read specific key data from its corresponding JSON file in finance_data/."""
-    try:
-        filepath = os.path.join(FINANCE_DATA_DIR, f"{key}.json")
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return default
-
-def file_save(data: dict):
-    """Write all user data to separate files in the finance_data/ directory."""
-    for key, value in data.items():
-        file_save_individual(key, value)
-
-def file_load() -> dict | None:
-    """Read user data from separate files in the finance_data/ directory."""
-    data = {}
-    data["transactions"] = file_load_individual("transactions", [])
-    data["accounts"]     = file_load_individual("accounts", None)
-    data["budgets"]      = file_load_individual("budgets", [])
-    data["goals"]        = file_load_individual("goals", [])
-    data["categories"]   = file_load_individual("categories", None)
-    data["recurring"]    = file_load_individual("recurring", [])
-    data["settings"]     = file_load_individual("settings", None)
-    return data
+# Data is kept strictly in st.session_state for privacy.
+# The user must download a backup (JSON) to save data to their machine, 
+# and upload it to restore. No server-side persistence is used.
 
 # Default categories
 DEFAULT_INCOME_CATEGORIES = ["Salary", "Freelance", "Investments", "Business", "Gifts", "Other Income"]
@@ -83,49 +44,49 @@ def load_transactions():
 
 def save_transactions(data):
     st.session_state.transactions = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_budgets():
     return []
 
 def save_budgets(data):
     st.session_state.budgets = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_goals():
     return []
 
 def save_goals(data):
     st.session_state.goals = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_accounts():
     return []
 
 def save_accounts(data):
     st.session_state.accounts = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_categories():
     return {}
 
 def save_categories(data):
     st.session_state.categories = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_recurring():
     return []
 
 def save_recurring(data):
     st.session_state.recurring = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def load_settings():
     return {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
 
 def save_settings(data):
     st.session_state.settings = data
-    st.session_state.trigger_save = True
+    st.session_state.data_modified = True
 
 def get_backup_dict() -> dict:
     """Return current session data as a dict ready for saving."""
@@ -138,6 +99,9 @@ def get_backup_dict() -> dict:
         "recurring":    st.session_state.recurring,
         "settings":     st.session_state.settings,
     }
+
+def clear_data_modified():
+    st.session_state.data_modified = False
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -173,6 +137,8 @@ def init_session_state():
         st.session_state.trans_form_id = 0
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
+    if 'data_modified' not in st.session_state:
+        st.session_state.data_modified = False
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -938,13 +904,10 @@ def show_transactions():
                         st.session_state.goals = data.get("goals", [])
                         st.session_state.categories = data.get("categories", st.session_state.categories)
                         st.session_state.recurring = data.get("recurring", [])
+                        if "settings" in data:
+                            st.session_state.settings = data.get("settings", st.session_state.settings)
                         
-                        save_transactions(st.session_state.transactions)
-                        save_accounts(st.session_state.accounts)
-                        save_budgets(st.session_state.budgets)
-                        save_goals(st.session_state.goals)
-                        save_categories(st.session_state.categories)
-                        save_recurring(st.session_state.recurring)
+                        st.session_state.data_modified = False
                         update_all_balances()
                         st.success("Data restored successfully!")
                         st.rerun()
@@ -1727,32 +1690,14 @@ def main():
     # Initialize session state first so settings are loaded
     init_session_state()
 
-    # ── File-based auto-load & auto-save ─────────────────────────────────
-    # Load data from disk once per session (on first render)
     if not st.session_state.get("data_loaded", False):
-        saved = file_load()
-        if saved:
-            st.session_state.transactions = saved.get("transactions", [])
-            st.session_state.accounts     = saved.get("accounts",     st.session_state.accounts)
-            st.session_state.budgets      = saved.get("budgets",      [])
-            st.session_state.goals        = saved.get("goals",        [])
-            st.session_state.categories   = saved.get("categories",   st.session_state.categories)
-            st.session_state.recurring    = saved.get("recurring",    [])
-            st.session_state.settings     = saved.get("settings", st.session_state.settings) or st.session_state.settings
-            update_all_balances()
-        st.session_state.data_loaded = True   # mark loaded (new user gets defaults)
+        st.session_state.data_loaded = True
 
     # Process recurring transactions automatically on load/rerun
     if st.session_state.get("data_loaded", False) and st.session_state.accounts:
         added = process_recurring_transactions()
         if added > 0:
             st.session_state["recurring_added_count"] = st.session_state.get("recurring_added_count", 0) + added
-
-    # Auto-save to disk whenever any data changes
-    if st.session_state.get("trigger_save", False):
-        file_save(get_backup_dict())
-        st.session_state.trigger_save = False
-        st.toast("💾 Data saved to your computer!")
 
     # Inject theme variables and layout CSS dynamically
     apply_theme_css()
@@ -1790,25 +1735,30 @@ def main():
             save_settings(st.session_state.settings)
             st.rerun()
         
-        # ── 💾 My Data (file-based auto-save) ─────────────────────────────
+        # ── 💾 My Data (download/upload persistence) ──────────────────────
         st.write("---")
-        st.markdown("**💾 My Data**")
-        st.caption("✅ Data auto-saved locally — reloads automatically each visit.")
+        st.markdown("**💾 Data Storage**")
+        st.caption("🔒 For privacy, data lives only in your browser. Download your backup before leaving to save your entries.")
 
-        # Export a portable backup (optional)
+        if st.session_state.get("data_modified", False):
+            st.warning("⚠️ You have unsaved changes! Download a new backup file to save your work.")
+
+        # Export backup
         backup_bytes = json.dumps(get_backup_dict(), indent=2, default=str).encode("utf-8")
         st.download_button(
-            label="📥 Export Backup",
+            label="📥 Download Backup (JSON)",
             data=backup_bytes,
             file_name=f"finance_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
             mime="application/json",
             use_container_width=True,
+            on_click=clear_data_modified,
+            key="sidebar_download_backup"
         )
 
         # Import from a backup file
-        uploaded = st.file_uploader("📤 Import Backup", type="json", label_visibility="collapsed", key="sidebar_backup_uploader")
+        uploaded = st.file_uploader("Upload Backup", type="json", label_visibility="collapsed", key="sidebar_backup_uploader")
         if uploaded is not None:
-            if st.button("Confirm Import", key="sidebar_confirm_import", use_container_width=True, type="primary"):
+            if st.button("Confirm Load", key="sidebar_confirm_import", use_container_width=True, type="primary"):
                 try:
                     data = json.load(uploaded)
                     st.session_state.transactions = data.get("transactions", [])
@@ -1819,11 +1769,11 @@ def main():
                     st.session_state.recurring    = data.get("recurring", [])
                     st.session_state.settings     = data.get("settings", st.session_state.settings)
                     update_all_balances()
-                    file_save(get_backup_dict())
-                    st.success("✅ Data imported and saved!")
+                    st.session_state.data_modified = False
+                    st.success("✅ Data loaded successfully!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Failed to import: {e}")
+                    st.error(f"Failed to load: {e}")
 
         # ── 📋 View Raw Data ───────────────────────────────────────────────
         st.write("---")

@@ -1,9 +1,0 @@
-[
-  {
-    "id": 1,
-    "category": "Housing",
-    "amount": 5000.0,
-    "alert_threshold": 80,
-    "created": "2026-06-29"
-  }
-]
