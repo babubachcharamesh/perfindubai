@@ -179,7 +179,11 @@ def init_session_state():
 # ============================================================
 
 def apply_theme_css():
-    theme = st.session_state.settings.get("theme", "light")
+    settings = st.session_state.get("settings", None)
+    if not isinstance(settings, dict):
+        settings = {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
+        st.session_state.settings = settings
+    theme = settings.get("theme", "light")
     
     if theme == "dark":
         # Professional slate dark theme
@@ -1734,7 +1738,7 @@ def main():
             st.session_state.goals        = saved.get("goals",        [])
             st.session_state.categories   = saved.get("categories",   st.session_state.categories)
             st.session_state.recurring    = saved.get("recurring",    [])
-            st.session_state.settings     = saved.get("settings",     st.session_state.settings)
+            st.session_state.settings     = saved.get("settings", st.session_state.settings) or st.session_state.settings
             update_all_balances()
         st.session_state.data_loaded = True   # mark loaded (new user gets defaults)
 
