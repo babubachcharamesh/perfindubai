@@ -559,34 +559,75 @@ def process_recurring_transactions():
 
 def show_dashboard():
     st.title("📊 Financial Dashboard")
-    
+
     # Process recurring transactions notification
     added_count = st.session_state.pop("recurring_added_count", 0)
     if added_count > 0:
         st.success(f"Auto-generated {added_count} recurring transaction(s)")
-    
+
+    # ── Data summary banner ──────────────────────────────────────────────────
+    total_tx = len(st.session_state.transactions)
+    if total_tx > 0:
+        all_dates = [t.get("date", "") for t in st.session_state.transactions if t.get("date")]
+        if all_dates:
+            min_date = min(all_dates)
+            max_date = max(all_dates)
+            st.info(f"📦 **{total_tx} transactions loaded** — spanning **{min_date}** to **{max_date}**")
+    else:
+        st.warning("No transactions yet. Add transactions or upload a backup.")
+
+    # ── Date range selector ──────────────────────────────────────────────────
+    now = datetime.now()
+    range_options = ["This Month", "Last 3 Months", "Last 6 Months", "This Year", "All Time"]
+    sel_range = st.selectbox("📅 View Period", range_options,
+                             index=range_options.index(st.session_state.get("dash_range", "This Month")),
+                             key="dash_range_select")
+    st.session_state["dash_range"] = sel_range
+
+    if sel_range == "This Month":
+        period_start, period_end = get_month_range()
+    elif sel_range == "Last 3 Months":
+        period_end = datetime(now.year, now.month, calendar.monthrange(now.year, now.month)[1], 23, 59, 59)
+        d3 = now - timedelta(days=90)
+        period_start = datetime(d3.year, d3.month, 1)
+    elif sel_range == "Last 6 Months":
+        period_end = datetime(now.year, now.month, calendar.monthrange(now.year, now.month)[1], 23, 59, 59)
+        d6 = now - timedelta(days=180)
+        period_start = datetime(d6.year, d6.month, 1)
+    elif sel_range == "This Year":
+        period_start = datetime(now.year, 1, 1)
+        period_end = datetime(now.year, 12, 31, 23, 59, 59)
+    else:  # All Time
+        period_start = datetime(2000, 1, 1)
+        period_end = datetime(2099, 12, 31, 23, 59, 59)
+
     # Key Metrics
     col1, col2, col3, col4 = st.columns(4)
-    
+
     total_balance = sum(acc["balance"] for acc in st.session_state.accounts)
-    
-    # This month stats
+
+    # Period stats (respects selected range)
+    period_trans = filter_by_date(st.session_state.transactions, period_start, period_end)
+    period_income = sum(t["amount"] for t in period_trans if t["type"] == "income")
+    period_expense = sum(t["amount"] for t in period_trans if t["type"] == "expense")
+    period_savings = period_income - period_expense
+
+    # Also compute this-month for the balance delta
     start_month, end_month = get_month_range()
     month_trans = filter_by_date(st.session_state.transactions, start_month, end_month)
-    
     month_income = sum(t["amount"] for t in month_trans if t["type"] == "income")
     month_expense = sum(t["amount"] for t in month_trans if t["type"] == "expense")
     month_savings = month_income - month_expense
-    
+
     with col1:
-        st.metric("Total Balance", format_currency(total_balance), 
-                 delta=format_currency(month_savings) + " this month")
+        st.metric("Total Balance", format_currency(total_balance),
+                  delta=format_currency(month_savings) + " this month")
     with col2:
-        st.metric("Monthly Income", format_currency(month_income))
+        st.metric(f"Income ({sel_range})", format_currency(period_income))
     with col3:
-        st.metric("Monthly Expenses", format_currency(month_expense))
+        st.metric(f"Expenses ({sel_range})", format_currency(period_expense))
     with col4:
-        savings_rate = (month_savings / month_income * 100) if month_income > 0 else 0
+        savings_rate = (period_savings / period_income * 100) if period_income > 0 else 0
         st.metric("Savings Rate", f"{savings_rate:.1f}%")
     
     # Charts Row 1
@@ -629,19 +670,19 @@ def show_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Expense Breakdown (This Month)")
+        st.subheader(f"Expense Breakdown ({sel_range})")
         expense_by_cat = defaultdict(float)
-        for t in month_trans:
+        for t in period_trans:
             if t["type"] == "expense":
                 expense_by_cat[t["category"]] += t["amount"]
-        
+
         if expense_by_cat:
             df_exp = pd.DataFrame(list(expense_by_cat.items()), columns=["Category", "Amount"])
             fig = px.pie(df_exp, values="Amount", names="Category", hole=0.3)
             fig.update_layout(height=350)
             st.plotly_chart(style_plotly_chart(fig), width='stretch')
         else:
-            st.info("No expenses this month")
+            st.info(f"No expenses for {sel_range}")
     
     with col2:
         st.subheader("Recent Transactions")
@@ -654,14 +695,14 @@ def show_dashboard():
             st.info("No transactions yet")
     
     # Budget Overview
-    st.subheader("Budget Status (This Month)")
+    st.subheader(f"Budget Status ({sel_range})")
     budgets = st.session_state.budgets
     if budgets:
         for budget in budgets:
-            spent = get_category_spending(st.session_state.transactions, budget["category"], start_month, end_month)
+            spent = get_category_spending(st.session_state.transactions, budget["category"], period_start, period_end)
             limit = budget["amount"]
             pct = (spent / limit * 100) if limit > 0 else 0
-            
+
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
                 st.write(f"**{budget['category']}**")
