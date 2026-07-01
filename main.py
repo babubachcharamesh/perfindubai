@@ -103,6 +103,26 @@ def get_backup_dict() -> dict:
 def clear_data_modified():
     st.session_state.data_modified = False
 
+def load_backup_data(data) -> bool:
+    if not isinstance(data, dict):
+        return False
+    
+    # Safely load lists
+    for key in ["transactions", "accounts", "budgets", "goals", "recurring"]:
+        val = data.get(key)
+        if isinstance(val, list):
+            st.session_state[key] = val
+            
+    # Safely load dicts
+    for key in ["categories", "settings"]:
+        val = data.get(key)
+        if isinstance(val, dict):
+            st.session_state[key] = val
+            
+    st.session_state.data_modified = False
+    update_all_balances()
+    return True
+
 # ============================================================
 # SESSION STATE INITIALIZATION
 # ============================================================
@@ -139,6 +159,10 @@ def init_session_state():
         st.session_state.data_loaded = False
     if 'data_modified' not in st.session_state:
         st.session_state.data_modified = False
+    if 'sidebar_uploader_key' not in st.session_state:
+        st.session_state.sidebar_uploader_key = 0
+    if 'page_uploader_key' not in st.session_state:
+        st.session_state.page_uploader_key = 0
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -893,24 +917,18 @@ def show_transactions():
                     st.error(f"Import failed: {e}")
             
             st.write("**Restore from Backup**")
-            backup_file = st.file_uploader("Upload JSON Backup", type="json")
+            page_uploader_key = f"page_uploader_{st.session_state.page_uploader_key}"
+            backup_file = st.file_uploader("Upload JSON Backup", type="json", key=page_uploader_key)
             if backup_file:
                 try:
                     data = json.load(backup_file)
                     if st.button("Restore Data"):
-                        st.session_state.transactions = data.get("transactions", [])
-                        st.session_state.accounts = data.get("accounts", st.session_state.accounts)
-                        st.session_state.budgets = data.get("budgets", [])
-                        st.session_state.goals = data.get("goals", [])
-                        st.session_state.categories = data.get("categories", st.session_state.categories)
-                        st.session_state.recurring = data.get("recurring", [])
-                        if "settings" in data:
-                            st.session_state.settings = data.get("settings", st.session_state.settings)
-                        
-                        st.session_state.data_modified = False
-                        update_all_balances()
-                        st.success("Data restored successfully!")
-                        st.rerun()
+                        if load_backup_data(data):
+                            st.session_state.page_uploader_key += 1
+                            st.success("Data restored successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid backup file structure.")
                 except Exception as e:
                     st.error(f"Restore failed: {e}")
 
@@ -1756,22 +1774,18 @@ def main():
         )
 
         # Import from a backup file
-        uploaded = st.file_uploader("Upload Backup", type="json", label_visibility="collapsed", key="sidebar_backup_uploader")
+        uploader_key = f"sidebar_uploader_{st.session_state.sidebar_uploader_key}"
+        uploaded = st.file_uploader("Upload Backup", type="json", label_visibility="collapsed", key=uploader_key)
         if uploaded is not None:
             if st.button("Confirm Load", key="sidebar_confirm_import", use_container_width=True, type="primary"):
                 try:
                     data = json.load(uploaded)
-                    st.session_state.transactions = data.get("transactions", [])
-                    st.session_state.accounts     = data.get("accounts", st.session_state.accounts)
-                    st.session_state.budgets      = data.get("budgets", [])
-                    st.session_state.goals        = data.get("goals", [])
-                    st.session_state.categories   = data.get("categories", st.session_state.categories)
-                    st.session_state.recurring    = data.get("recurring", [])
-                    st.session_state.settings     = data.get("settings", st.session_state.settings)
-                    update_all_balances()
-                    st.session_state.data_modified = False
-                    st.success("✅ Data loaded successfully!")
-                    st.rerun()
+                    if load_backup_data(data):
+                        st.session_state.sidebar_uploader_key += 1
+                        st.success("✅ Data loaded successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid backup file structure.")
                 except Exception as e:
                     st.error(f"Failed to load: {e}")
 
