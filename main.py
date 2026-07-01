@@ -107,21 +107,49 @@ def load_backup_data(data) -> bool:
     if not isinstance(data, dict):
         return False
     
+    # Check if there is at least one of the expected keys to confirm it's a valid finance backup
+    expected_keys = {"transactions", "accounts", "budgets", "goals", "categories", "recurring", "settings"}
+    if not any(k in data for k in expected_keys):
+        return False
+        
+    loaded_any = False
+    
     # Safely load lists
     for key in ["transactions", "accounts", "budgets", "goals", "recurring"]:
-        val = data.get(key)
-        if isinstance(val, list):
-            st.session_state[key] = val
+        if key in data:
+            val = data[key]
+            if isinstance(val, list):
+                st.session_state[key] = val
+                loaded_any = True
+            elif val is None:
+                # If explicitly null, reset to default empty list/structure rather than crashing
+                if key == "accounts":
+                    pass # Keep existing default accounts
+                else:
+                    st.session_state[key] = []
+                    loaded_any = True
             
     # Safely load dicts
     for key in ["categories", "settings"]:
-        val = data.get(key)
-        if isinstance(val, dict):
-            st.session_state[key] = val
+        if key in data:
+            val = data[key]
+            if isinstance(val, dict):
+                st.session_state[key] = val
+                loaded_any = True
+            elif val is None:
+                if key == "categories":
+                    st.session_state.categories = {
+                        "income": DEFAULT_INCOME_CATEGORIES[:],
+                        "expense": DEFAULT_EXPENSE_CATEGORIES[:]
+                    }
+                    loaded_any = True
+                elif key == "settings":
+                    st.session_state.settings = {"currency": "USD", "theme": "light", "date_format": "%Y-%m-%d"}
+                    loaded_any = True
             
     st.session_state.data_modified = False
-    update_all_balances()
-    return True
+    update_all_balances(trigger_modified=False)
+    return loaded_any
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -425,10 +453,11 @@ def calculate_account_balance(account_id, transactions):
                     balance -= amt
     return balance
 
-def update_all_balances():
+def update_all_balances(trigger_modified=True):
     for account in st.session_state.accounts:
         account["balance"] = calculate_account_balance(account["id"], st.session_state.transactions)
-    save_accounts(st.session_state.accounts)
+    if trigger_modified:
+        st.session_state.data_modified = True
 
 def get_month_range(year=None, month=None):
     if year is None:
@@ -925,7 +954,7 @@ def show_transactions():
                     if st.button("Restore Data"):
                         if load_backup_data(data):
                             st.session_state.page_uploader_key += 1
-                            st.success("Data restored successfully!")
+                            st.session_state.backup_success_msg = "✅ Data restored successfully!"
                             st.rerun()
                         else:
                             st.error("Invalid backup file structure.")
@@ -1708,6 +1737,11 @@ def main():
     # Initialize session state first so settings are loaded
     init_session_state()
 
+    # Show successful toast from backup restore if any
+    if "backup_success_msg" in st.session_state:
+        st.toast(st.session_state.backup_success_msg, icon="✅")
+        del st.session_state["backup_success_msg"]
+
     if not st.session_state.get("data_loaded", False):
         st.session_state.data_loaded = True
 
@@ -1782,7 +1816,7 @@ def main():
                     data = json.load(uploaded)
                     if load_backup_data(data):
                         st.session_state.sidebar_uploader_key += 1
-                        st.success("✅ Data loaded successfully!")
+                        st.session_state.backup_success_msg = "✅ Data loaded successfully!"
                         st.rerun()
                     else:
                         st.error("Invalid backup file structure.")
